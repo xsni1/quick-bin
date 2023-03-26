@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -8,54 +9,47 @@ import (
 	"os"
 )
 
+var filesPath = "./files/"
+var addr = ":6666"
+
 func main() {
-	addr := ":6666"
-
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 512<<20)
+		r.ParseMultipartForm(512 << 20)
+		file, header, err := r.FormFile("file")
+		defer file.Close()
 
-		r.ParseMultipartForm(19999)
-		form := r.MultipartForm
-
-		fmt.Println(form.Value)
-		fmt.Println(form.File)
-
-		file, ok := form.File["obraz"]
-
-		if !ok {
-			http.Error(w, "No file", http.StatusBadRequest)
+		if errors.Is(err, http.ErrMissingFile) {
+			http.Error(w, "No file provided", http.StatusBadRequest)
+			log.Println("No file provided: ", err)
+			return
+		}
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			log.Println("Failure during file read: ", err)
 			return
 		}
 
-		f, err := file[len(file)-1].Open()
+		log.Printf("File received { name: %s, size: %d, header: %s }", header.Filename, header.Size, header.Header)
+
+		path := fmt.Sprintf("%s%s", filesPath, header.Filename)
+		fileData, err := io.ReadAll(file)
 
 		if err != nil {
-			http.Error(w, "Error opening file", http.StatusInternalServerError)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			log.Println("Failured during file read: ", err)
 			return
 		}
 
-		fmt.Println(f)
+		err = os.WriteFile(path, fileData, 0644)
 
-		newFile, err := os.Create("plik")
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			log.Println("Failure during file write: ", err)
+			return
+		}
 
-		io.Copy(newFile, f)
-
-		// reader, err := r.MultipartReader()
-		// if err != nil {
-		// 	log.Printf("Error: %s", err)
-		// 	http.Error(w, "Internal server error", http.StatusInternalServerError)
-		// 	return
-		// }
-
-		// for {
-		// 	part, err := reader.NextPart()
-		// 	if err == io.EOF {
-		// 		break
-		// 	}
-		// }
-
-		// NewReader
-
-		log.Println("req")
+		log.Printf("File written to disk { path: %s }", path)
 	})
 
 	log.Printf("Server on up %s", addr)
