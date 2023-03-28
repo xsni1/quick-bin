@@ -13,6 +13,8 @@ var addr = ":6666"
 func main() {
 	mux := chi.NewMux()
 
+	file.NewFilesRepository()
+
 	fileHandler := file.NewHandler()
 	fileHandler.SetupRoutes(mux)
 

@@ -6,5 +6,6 @@ services:
     restart: always
     environment:
       - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=quick-fix
     ports:
       - 5444:5432
