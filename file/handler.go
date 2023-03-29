@@ -9,17 +9,26 @@ import (
 	"os"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 type FileRepository interface {
+	Insert(file File) error
 }
 
 type Handler struct {
-	// Repository FileRepository
+	repository FileRepository
 }
 
-func NewHandler() *Handler {
-	return &Handler{}
+func NewHandler(repository FileRepository) *Handler {
+	return &Handler{
+		repository: repository,
+	}
+}
+
+type File struct {
+	Name string
+	Id   string
 }
 
 var filesPath = "./files/"
@@ -60,6 +69,13 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 		log.Println("Failure during file write: ", err)
 		return
 	}
+
+	id := uuid.New()
+
+	h.repository.Insert(File{
+		Name: header.Filename,
+		Id:   id.String(),
+	})
 
 	log.Printf("File written to disk { path: %s }", path)
 }

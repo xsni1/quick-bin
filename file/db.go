@@ -3,6 +3,7 @@ package file
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	_ "github.com/lib/pq"
 )
@@ -15,10 +16,12 @@ var host = "localhost"
 var dbname = "quick-fix"
 var user = "postgres"
 var password = "password"
+var port = "5444"
 
 func NewFilesRepository() (FileRepository, error) {
 	connString := fmt.Sprintf(
-		"host=%s dbname=%s user=%s password=%s sslmode=disable",
+		"port=%s host=%s dbname=%s user=%s password=%s sslmode=disable",
+		port,
 		host,
 		dbname,
 		user,
@@ -42,4 +45,17 @@ func NewFilesRepository() (FileRepository, error) {
 	}
 
 	return r, nil
+}
+
+func (r *FilesRepository) Insert(file File) error {
+	_, err := r.db.Exec(
+		"INSERT INTO files(id, file_name, created_on) VALUES (?, ?, ?)",
+		file.Id, file.Name, time.Now(),
+	)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
