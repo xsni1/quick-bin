@@ -49,7 +49,7 @@ func NewFilesRepository() (FileRepository, error) {
 
 func (r *FilesRepository) Insert(file File) error {
 	_, err := r.db.Exec(
-		"INSERT INTO files(id, file_name, created_on) VALUES (?, ?, ?)",
+		"INSERT INTO files(id, file, created_on) VALUES ($1, $2, $3)",
 		file.Id, file.Name, time.Now(),
 	)
 
