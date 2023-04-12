@@ -8,6 +8,12 @@ import (
 	_ "github.com/lib/pq"
 )
 
+type fileModel struct {
+	id         string
+	file       string
+	created_on time.Time
+}
+
 type FilesRepository struct {
 	db *sql.DB
 }
@@ -58,4 +64,29 @@ func (r *FilesRepository) Insert(file File) error {
 	}
 
 	return nil
+}
+
+func (r *FilesRepository) Get(id string) (*File, error) {
+	file := fileModel{}
+	rows, err := r.db.Query(
+		"SELECT id, file, created_on FROM files WHERE id = $1",
+		id,
+	)
+	defer rows.Close()
+
+	if err != nil {
+		return nil, err
+	}
+
+	err = rows.Scan(file)
+
+	if err != nil {
+		return nil, err
+	}
+
+	domainFile := &File{
+		Name: file.file,
+		Id:   file.id,
+	}
+	return domainFile, nil
 }

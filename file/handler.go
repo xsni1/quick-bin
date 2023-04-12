@@ -14,6 +14,7 @@ import (
 
 type FileRepository interface {
 	Insert(file File) error
+	Get(id string) (*File, error)
 }
 
 type Handler struct {
@@ -81,10 +82,24 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
+	fileId := chi.URLParam(r, "fileId")
 
+	if fileId == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	file, err := h.repository.Get(fileId)
+
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// wyslac w responsie plik
 }
 
 func (h *Handler) SetupRoutes(mux *chi.Mux) {
 	mux.Post("/", http.HandlerFunc(h.uploadFile))
-	mux.Get("/", http.HandlerFunc(h.getFile))
+	mux.Get("/{fileId}", http.HandlerFunc(h.getFile))
 }
