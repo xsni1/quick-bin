@@ -8,7 +8,7 @@ import (
 	"github.com/xsni1/quick-bin/file"
 )
 
-var addr = ":6666"
+var addr = ":8089"
 
 func main() {
 	mux := chi.NewMux()

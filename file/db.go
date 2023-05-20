@@ -40,14 +40,14 @@ func NewFilesRepository() (FileRepository, error) {
 		return nil, fmt.Errorf("failed to create db value: %w", err)
 	}
 
-	r := &FilesRepository{
-		db: db,
-	}
-
 	err = db.Ping()
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to db: %w", err)
+	}
+
+	r := &FilesRepository{
+		db: db,
 	}
 
 	return r, nil
@@ -78,7 +78,8 @@ func (r *FilesRepository) Get(id string) (*File, error) {
 		return nil, err
 	}
 
-	err = rows.Scan(file)
+	rows.Next()
+	err = rows.Scan(&file.id, &file.file, &file.created_on)
 
 	if err != nil {
 		return nil, err

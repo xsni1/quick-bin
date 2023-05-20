@@ -1,6 +1,7 @@
 package file
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -32,13 +33,16 @@ type File struct {
 	Id   string
 }
 
-var filesPath = "./files/"
+var filesPath = "./data/"
 var maxFileSizeMB = 512
 
 func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, int64(maxFileSizeMB)<<20)
-	r.ParseMultipartForm(int64(maxFileSizeMB) << 20)
+	// n Bytes * 2^20 = n Megabytes
+	size := int64(maxFileSizeMB) << 20
+	r.Body = http.MaxBytesReader(w, r.Body, size<<20)
+	r.ParseMultipartForm(size << 20)
 	file, header, err := r.FormFile("file")
+
 	defer file.Close()
 
 	if errors.Is(err, http.ErrMissingFile) {
@@ -46,6 +50,7 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 		log.Println("No file provided: ", err)
 		return
 	}
+
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		log.Println("Failure during file read: ", err)
@@ -73,10 +78,16 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 
 	id := uuid.New()
 
-	h.repository.Insert(File{
+	err = h.repository.Insert(File{
 		Name: header.Filename,
 		Id:   id.String(),
 	})
+
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		log.Println("Failure during db insertion: ", err)
+		return
+	}
 
 	log.Printf("File written to disk { path: %s }", path)
 }
@@ -93,10 +104,24 @@ func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		log.Println("Failure getting", err)
 		return
 	}
 
-	// wyslac w responsie plik
+	path := fmt.Sprintf("%s%s", filesPath, file.Name)
+	opened, err := os.Open(path)
+
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		log.Println("Failure reading file from disk", err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", file.Name))
+	dat := bufio.NewReader(opened)
+
+	dat.WriteTo(w)
 }
 
 func (h *Handler) SetupRoutes(mux *chi.Mux) {
