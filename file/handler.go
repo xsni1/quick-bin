@@ -2,6 +2,7 @@ package file
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +11,7 @@ import (
 	"os"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
+	"github.com/xsni1/quick-bin/hasher"
 )
 
 type FileRepository interface {
@@ -33,17 +34,21 @@ type File struct {
 	Id   string
 }
 
+type uploadFileResponse struct {
+	Id string
+}
+
 var filesPath = "./data/"
 var maxFileSizeMB = 512
 
 func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
+	log.Println("File upload started")
+
 	// n Bytes * 2^20 = n Megabytes
 	size := int64(maxFileSizeMB) << 20
 	r.Body = http.MaxBytesReader(w, r.Body, size<<20)
 	r.ParseMultipartForm(size << 20)
 	file, header, err := r.FormFile("file")
-
-	defer file.Close()
 
 	if errors.Is(err, http.ErrMissingFile) {
 		http.Error(w, "No file provided", http.StatusBadRequest)
@@ -57,9 +62,14 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	defer file.Close()
+
 	log.Printf("File received { name: %s, size: %d, header: %s }", header.Filename, header.Size, header.Header)
 
-	path := fmt.Sprintf("%s%s", filesPath, header.Filename)
+	id := hasher.Hasher(5)
+	log.Println("Generated hash: ", id)
+
+	path := fmt.Sprintf("%s%s", filesPath, id)
 	fileData, err := io.ReadAll(file)
 
 	if err != nil {
@@ -68,6 +78,7 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// nazwa pliku na dysku = id
 	err = os.WriteFile(path, fileData, 0644)
 
 	if err != nil {
@@ -76,12 +87,9 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Add hash
-	id := uuid.New()
-
 	err = h.repository.Insert(File{
 		Name: header.Filename,
-		Id:   id.String(),
+		Id:   id,
 	})
 
 	if err != nil {
@@ -91,6 +99,18 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("File written to disk { path: %s }", path)
+
+	response, err := json.Marshal(uploadFileResponse{Id: id})
+
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		log.Println("JSON Marshalling error: ", err)
+		return
+	}
+
+	log.Println("Upload file response", response)
+	w.Header().Add("Content-Type", "application/json")
+	w.Write(response)
 }
 
 func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
