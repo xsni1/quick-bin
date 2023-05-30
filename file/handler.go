@@ -76,6 +76,7 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// TODO: Add hash
 	id := uuid.New()
 
 	err = h.repository.Insert(File{
