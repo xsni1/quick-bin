@@ -9,9 +9,10 @@ import (
 )
 
 type fileModel struct {
-	id         string
-	file       string
-	created_on time.Time
+	id             string
+	file           string
+	downloads_left int
+	created_on     time.Time
 }
 
 type FilesRepository struct {
@@ -55,8 +56,8 @@ func NewFilesRepository() (FileRepository, error) {
 
 func (r *FilesRepository) Insert(file File) error {
 	_, err := r.db.Exec(
-		"INSERT INTO files(id, file, created_on) VALUES ($1, $2, $3)",
-		file.Id, file.Name, time.Now(),
+		"INSERT INTO files(id, file, downloads_left, created_on) VALUES ($1, $2, $3, $4)",
+		file.Id, file.Name, file.DownloadsLeft, time.Now(),
 	)
 
 	if err != nil {

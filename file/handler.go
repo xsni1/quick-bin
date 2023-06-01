@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/xsni1/quick-bin/hasher"
@@ -30,8 +31,9 @@ func NewHandler(repository FileRepository) *Handler {
 }
 
 type File struct {
-	Name string
-	Id   string
+	Name          string
+	DownloadsLeft int
+	Id            string
 }
 
 type uploadFileResponse struct {
@@ -41,8 +43,24 @@ type uploadFileResponse struct {
 var filesPath = "./data/"
 var maxFileSizeMB = 512
 
+func getDownloads(downloads string) (int, error) {
+	if downloads == "" {
+		return -1, nil
+	}
+
+	return strconv.Atoi(downloads)
+}
+
 func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 	log.Println("File upload started")
+
+	downloads, err := getDownloads(r.URL.Query().Get("downloads"))
+
+	if err != nil {
+		http.Error(w, "Incorrect parameter", http.StatusBadRequest)
+		log.Println("Failure during parameter conversion: ", err)
+		return
+	}
 
 	// n Bytes * 2^20 = n Megabytes
 	size := int64(maxFileSizeMB) << 20
@@ -78,7 +96,6 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// nazwa pliku na dysku = id
 	err = os.WriteFile(path, fileData, 0644)
 
 	if err != nil {
@@ -88,8 +105,9 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err = h.repository.Insert(File{
-		Name: header.Filename,
-		Id:   id,
+		Name:          header.Filename,
+		DownloadsLeft: downloads,
+		Id:            id,
 	})
 
 	if err != nil {
@@ -129,7 +147,7 @@ func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := fmt.Sprintf("%s%s", filesPath, file.Name)
+	path := fmt.Sprintf("%s%s", filesPath, file.Id)
 	opened, err := os.Open(path)
 
 	if err != nil {
