@@ -1,6 +1,7 @@
 package file
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -15,47 +16,95 @@ type fileModel struct {
 	created_on     time.Time
 }
 
-type FilesRepository struct {
-	db *sql.DB
+type Connection interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	Query(query string, args ...any) (*sql.Rows, error)
 }
 
-var host = "localhost"
-var dbname = "quick-fix"
-var user = "postgres"
-var password = "password"
-var port = "5444"
+type Querier struct {
+	Connection
+}
 
-func NewFilesRepository() (FileRepository, error) {
-	connString := fmt.Sprintf(
-		"port=%s host=%s dbname=%s user=%s password=%s sslmode=disable",
-		port,
-		host,
-		dbname,
-		user,
-		password,
-	)
+func NewQuerier(db Connection) *Querier {
+	return &Querier{
+		db,
+	}
+}
 
-	db, err := sql.Open("postgres", connString)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to create db value: %w", err)
+func (q *Querier) WithTx(tx *sql.Tx) (Querier, error) {
+	nr := &Querier{
+		tx,
 	}
 
-	err = db.Ping()
+	return *nr, nil
+}
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to db: %w", err)
-	}
+type FilesRepository struct {
+	db      *sql.DB
+	querier Querier
+}
 
+func NewFilesRepository(db *sql.DB) (FileRepository, error) {
 	r := &FilesRepository{
-		db: db,
+		db:      db,
+		querier: *NewQuerier(db),
 	}
 
 	return r, nil
 }
 
+func (r *FilesRepository) execTx(fn func(q *Querier) error) error {
+	tx, err := r.db.BeginTx(context.TODO(), nil)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	withTx, err := r.querier.WithTx(tx)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	err = fn(&withTx)
+	fmt.Errorf(err.Error())
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	tx.Commit()
+	return nil
+}
+
+func (r *FilesRepository) GetIfDownloadsLeft(id string) error {
+	r.execTx(func(q *Querier) error {
+		rows, err := q.Query(
+			"SELECT id, file, created_on FROM files WHERE id = $1",
+			id,
+		)
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
+
+		fmt.Println("row", rows)
+
+		rows, err = q.Query(
+			"SELECT id, file, created_on FROM files WHERE id = $1",
+			id,
+		)
+
+		fmt.Println("row", rows)
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
+		return nil
+	})
+	return nil
+}
+
 func (r *FilesRepository) Insert(file File) error {
-	_, err := r.db.Exec(
+	_, err := r.querier.Exec(
 		"INSERT INTO files(id, file, downloads_left, created_on) VALUES ($1, $2, $3, $4)",
 		file.Id, file.Name, file.DownloadsLeft, time.Now(),
 	)
@@ -69,7 +118,7 @@ func (r *FilesRepository) Insert(file File) error {
 
 func (r *FilesRepository) Get(id string) (*File, error) {
 	file := fileModel{}
-	rows, err := r.db.Query(
+	rows, err := r.querier.Query(
 		"SELECT id, file, created_on FROM files WHERE id = $1",
 		id,
 	)

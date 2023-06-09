@@ -18,6 +18,7 @@ import (
 type FileRepository interface {
 	Insert(file File) error
 	Get(id string) (*File, error)
+	GetIfDownloadsLeft(id string) error
 }
 
 type Handler struct {
@@ -139,6 +140,8 @@ func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// zawrzec pobieranie, lockowanie + dekrementacje w repo na metodzie Get?
+	// albo dwie metody Get i GetAndDecrement?
 	file, err := h.repository.Get(fileId)
 
 	if err != nil {
@@ -155,7 +158,6 @@ func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
 		log.Println("Failure reading file from disk", err)
 		return
 	}
-
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", file.Name))
 	dat := bufio.NewReader(opened)
@@ -163,7 +165,12 @@ func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
 	dat.WriteTo(w)
 }
 
+func (h *Handler) test(w http.ResponseWriter, r *http.Request) {
+	h.repository.GetIfDownloadsLeft(chi.URLParam(r, "fileId"))
+}
+
 func (h *Handler) SetupRoutes(mux *chi.Mux) {
 	mux.Post("/", http.HandlerFunc(h.uploadFile))
-	mux.Get("/{fileId}", http.HandlerFunc(h.getFile))
+	// mux.Get("/{fileId}", http.HandlerFunc(h.getFile))
+	mux.Get("/{fileId}", http.HandlerFunc(h.test))
 }
