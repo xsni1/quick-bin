@@ -3,12 +3,13 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"math/rand"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/xsni1/quick-bin/file"
 )
 
@@ -46,19 +47,18 @@ func initDbConn() (*sql.DB, error) {
 }
 
 func main() {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	mux := chi.NewMux()
+
 	db, err := initDbConn()
 	if err != nil {
-		log.Panicf("failed to create file repo: %s", err)
+		log.Fatal().
+			Err(err).
+			Msgf("Could not connect to db")
 	}
 
-	fileRepo, err := file.NewFilesRepository(db)
-
+	fileRepo := file.NewFilesRepository(db)
 	rand.Seed(time.Now().UnixNano())
-
-	if err != nil {
-		log.Panicf("failed to create file repo: %s", err)
-	}
 
 	fileHandler := file.NewHandler(fileRepo)
 	fileHandler.SetupRoutes(mux)
