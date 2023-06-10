@@ -7,6 +7,7 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/xsni1/quick-bin/db"
 )
 
 type fileModel struct {
@@ -16,44 +17,21 @@ type fileModel struct {
 	created_on     time.Time
 }
 
-type Connection interface {
-	Exec(query string, args ...any) (sql.Result, error)
-	Query(query string, args ...any) (*sql.Rows, error)
-}
-
-type Querier struct {
-	Connection
-}
-
-func NewQuerier(db Connection) *Querier {
-	return &Querier{
-		db,
-	}
-}
-
-func (q *Querier) WithTx(tx *sql.Tx) (Querier, error) {
-	nr := &Querier{
-		tx,
-	}
-
-	return *nr, nil
-}
-
 type FilesRepository struct {
 	db      *sql.DB
-	querier Querier
+	querier db.Querier
 }
 
-func NewFilesRepository(db *sql.DB) (FileRepository, error) {
+func NewFilesRepository(conn *sql.DB) FileRepository {
 	r := &FilesRepository{
-		db:      db,
-		querier: *NewQuerier(db),
+		db:      conn,
+		querier: *db.NewQuerier(conn),
 	}
 
-	return r, nil
+	return r
 }
 
-func (r *FilesRepository) execTx(fn func(q *Querier) error) error {
+func (r *FilesRepository) execTx(fn func(q *db.Querier) error) error {
 	tx, err := r.db.BeginTx(context.TODO(), nil)
 	if err != nil {
 		fmt.Println(err)
@@ -76,7 +54,7 @@ func (r *FilesRepository) execTx(fn func(q *Querier) error) error {
 }
 
 func (r *FilesRepository) GetIfDownloadsLeft(id string) error {
-	r.execTx(func(q *Querier) error {
+	err := r.execTx(func(q *db.Querier) error {
 		rows, err := q.Query(
 			"SELECT id, file, created_on FROM files WHERE id = $1",
 			id,
@@ -100,7 +78,8 @@ func (r *FilesRepository) GetIfDownloadsLeft(id string) error {
 		}
 		return nil
 	})
-	return nil
+
+	return err
 }
 
 func (r *FilesRepository) Insert(file File) error {
@@ -123,14 +102,12 @@ func (r *FilesRepository) Get(id string) (*File, error) {
 		id,
 	)
 	defer rows.Close()
-
 	if err != nil {
 		return nil, err
 	}
 
 	rows.Next()
 	err = rows.Scan(&file.id, &file.file, &file.created_on)
-
 	if err != nil {
 		return nil, err
 	}
