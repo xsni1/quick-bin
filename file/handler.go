@@ -142,6 +142,11 @@ func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
 
 	file, err := h.repository.GetIfDownloadsLeft(fileId)
 
+	if errors.Is(err, NoDownloadsLeftErr) {
+		http.Error(w, "No downloads left", http.StatusForbidden)
+		return
+	}
+
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		log.Println("Failure getting", err)
