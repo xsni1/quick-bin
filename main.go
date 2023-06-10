@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -47,7 +48,13 @@ func initDbConn() (*sql.DB, error) {
 }
 
 func main() {
+	logger := zerolog.
+		New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).
+		With().
+		Timestamp().
+		Logger()
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+
 	mux := chi.NewMux()
 
 	db, err := initDbConn()
@@ -57,12 +64,13 @@ func main() {
 			Msgf("Could not connect to db")
 	}
 
-	fileRepo := file.NewFilesRepository(db)
+	fileRepo := file.NewFilesRepository(db, logger)
 	rand.Seed(time.Now().UnixNano())
 
-	fileHandler := file.NewHandler(fileRepo)
+	// pointer czy nie
+	fileHandler := file.NewHandler(fileRepo, logger)
 	fileHandler.SetupRoutes(mux)
 
-	log.Printf("Server on up %s", addr)
+	logger.Info().Msgf("Server started on: %s", addr)
 	http.ListenAndServe(addr, mux)
 }

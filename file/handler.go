@@ -8,10 +8,12 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/httputil"
 	"os"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/rs/zerolog"
 	"github.com/xsni1/quick-bin/hasher"
 )
 
@@ -23,11 +25,13 @@ type FileRepository interface {
 
 type Handler struct {
 	repository FileRepository
+	logger     zerolog.Logger
 }
 
-func NewHandler(repository FileRepository) *Handler {
+func NewHandler(repository FileRepository, logger zerolog.Logger) *Handler {
 	return &Handler{
 		repository: repository,
+		logger:     logger,
 	}
 }
 
@@ -53,13 +57,12 @@ func getDownloads(downloads string) (int, error) {
 }
 
 func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
-	log.Println("File upload started")
+	h.logger.Trace().Msg("uploadFile method called")
 
 	downloads, err := getDownloads(r.URL.Query().Get("downloads"))
-
 	if err != nil {
 		http.Error(w, "Incorrect parameter", http.StatusBadRequest)
-		log.Println("Failure during parameter conversion: ", err)
+		h.logger.Debug().AnErr("Invalid downloads parameter", err)
 		return
 	}
 
@@ -71,37 +74,39 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 
 	if errors.Is(err, http.ErrMissingFile) {
 		http.Error(w, "No file provided", http.StatusBadRequest)
-		log.Println("No file provided: ", err)
+		h.logger.Debug().AnErr("No file provided", err)
 		return
 	}
 
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		log.Println("Failure during file read: ", err)
+		h.logger.Debug().AnErr("Failure during decoding form-file", err)
 		return
 	}
 
 	defer file.Close()
 
-	log.Printf("File received { name: %s, size: %d, header: %s }", header.Filename, header.Size, header.Header)
+	h.logger.Debug().
+		Str("file name", header.Filename).
+		Int64("size", header.Size).
+		Msg("File received")
 
 	id := hasher.Hasher(5)
-	log.Println("Generated hash: ", id)
+	h.logger.Debug().
+		Str("hash", id)
 
 	path := fmt.Sprintf("%s%s", filesPath, id)
 	fileData, err := io.ReadAll(file)
-
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		log.Println("Failured during file read: ", err)
+		h.logger.Debug().AnErr("Failure during file read from request", err)
 		return
 	}
 
 	err = os.WriteFile(path, fileData, 0644)
-
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		log.Println("Failure during file write: ", err)
+		h.logger.Debug().AnErr("Failure during file write", err)
 		return
 	}
 
@@ -110,26 +115,24 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 		DownloadsLeft: downloads,
 		Id:            id,
 	})
-
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		log.Println("Failure during db insertion: ", err)
+		h.logger.Debug().AnErr("Failure during db insertion operation", err)
 		return
 	}
 
-	log.Printf("File written to disk { path: %s }", path)
+	h.logger.Debug().Str("path", path).Msg("File written to disk")
 
 	response, err := json.Marshal(uploadFileResponse{Id: id})
-
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		log.Println("JSON Marshalling error: ", err)
+		h.logger.Debug().AnErr("JSON marshalling error", err)
 		return
 	}
 
-	log.Println("Upload file response", response)
 	w.Header().Add("Content-Type", "application/json")
 	w.Write(response)
+	h.logger.Trace().Msg("uploadFile execution finished")
 }
 
 func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +171,21 @@ func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
 	dat.WriteTo(w)
 }
 
+func (h *Handler) log(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		dumpedRequest, _ := httputil.DumpRequest(r, false)
+
+		h.logger.Trace().
+			Str("host", r.Host).
+			Str("path", r.URL.Path).
+			Bytes("request", dumpedRequest).
+			Msg("Request start")
+		next.ServeHTTP(w, r)
+		h.logger.Trace().Msg("Request end")
+	})
+}
+
 func (h *Handler) SetupRoutes(mux *chi.Mux) {
-	mux.Post("/", http.HandlerFunc(h.uploadFile))
-	mux.Get("/{fileId}", http.HandlerFunc(h.getFile))
+	mux.Post("/", h.log(h.uploadFile))
+	mux.Get("/{fileId}", h.log(h.getFile))
 }

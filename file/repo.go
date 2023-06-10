@@ -8,9 +8,12 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/xsni1/quick-bin/db"
 )
+
+var NoDownloadsLeftErr = errors.New("File has no downloads left")
 
 type fileModel struct {
 	id             string
@@ -22,12 +25,14 @@ type fileModel struct {
 type FilesRepository struct {
 	db      *sql.DB
 	querier db.Querier
+	logger  zerolog.Logger
 }
 
-func NewFilesRepository(conn *sql.DB) FileRepository {
+func NewFilesRepository(conn *sql.DB, logger zerolog.Logger) FileRepository {
 	r := &FilesRepository{
 		db:      conn,
 		querier: *db.NewQuerier(conn),
+		logger:  logger,
 	}
 
 	return r
@@ -73,7 +78,7 @@ func (r *FilesRepository) GetIfDownloadsLeft(id string) (*File, error) {
 		}
 
 		if file.DownloadsLeft == 0 {
-			return nil, errors.New("No downloads left on the file")
+			return nil, NoDownloadsLeftErr
 		}
 
 		file.DownloadsLeft -= 1
