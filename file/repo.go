@@ -3,10 +3,12 @@ package file
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/rs/zerolog/log"
 	"github.com/xsni1/quick-bin/db"
 )
 
@@ -31,7 +33,9 @@ func NewFilesRepository(conn *sql.DB) FileRepository {
 	return r
 }
 
-func (r *FilesRepository) execTx(fn func(q *db.Querier) error) error {
+func (r *FilesRepository) execTx(fn func(q *FilesRepository) (any, error)) (any, error) {
+	log.Debug().Msg("Executing execTx")
+
 	tx, err := r.db.BeginTx(context.TODO(), nil)
 	if err != nil {
 		fmt.Println(err)
@@ -42,44 +46,50 @@ func (r *FilesRepository) execTx(fn func(q *db.Querier) error) error {
 		fmt.Println(err)
 	}
 
-	err = fn(&withTx)
-	fmt.Errorf(err.Error())
+	repoTx := r.withTx(withTx)
+	result, err := fn(repoTx)
+
 	if err != nil {
 		tx.Rollback()
-		return err
+		return nil, err
 	}
 
 	tx.Commit()
-	return nil
+	return result, nil
 }
 
-func (r *FilesRepository) GetIfDownloadsLeft(id string) error {
-	err := r.execTx(func(q *db.Querier) error {
-		rows, err := q.Query(
-			"SELECT id, file, created_on FROM files WHERE id = $1",
-			id,
-		)
+func (r *FilesRepository) withTx(tx db.Querier) *FilesRepository {
+	return &FilesRepository{
+		db:      r.db,
+		querier: tx,
+	}
+}
+
+func (r *FilesRepository) GetIfDownloadsLeft(id string) (*File, error) {
+	result, err := r.execTx(func(q *FilesRepository) (any, error) {
+		file, err := q.Get(id)
 		if err != nil {
-			fmt.Println(err)
-			return err
+			return file, err
 		}
 
-		fmt.Println("row", rows)
-
-		rows, err = q.Query(
-			"SELECT id, file, created_on FROM files WHERE id = $1",
-			id,
-		)
-
-		fmt.Println("row", rows)
-		if err != nil {
-			fmt.Println(err)
-			return err
+		if file.DownloadsLeft == 0 {
+			return nil, errors.New("No downloads left on the file")
 		}
-		return nil
+
+		file.DownloadsLeft -= 1
+		err = q.Update(*file, file.Id)
+		if err != nil {
+			return nil, err
+		}
+
+		return file, nil
 	})
 
-	return err
+	if err != nil {
+		return nil, err
+	}
+
+	return result.(*File), nil
 }
 
 func (r *FilesRepository) Insert(file File) error {
@@ -95,10 +105,21 @@ func (r *FilesRepository) Insert(file File) error {
 	return nil
 }
 
+func (r *FilesRepository) Update(file File, whereId string) error {
+	_, err := r.querier.Exec(
+		"UPDATE files SET id = $1, file = $2, downloads_left = $3 WHERE id = $4",
+		file.Id, file.Name, file.DownloadsLeft, whereId,
+	)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *FilesRepository) Get(id string) (*File, error) {
 	file := fileModel{}
 	rows, err := r.querier.Query(
-		"SELECT id, file, created_on FROM files WHERE id = $1",
+		"SELECT id, file, created_on, downloads_left FROM files WHERE id = $1",
 		id,
 	)
 	defer rows.Close()
@@ -107,14 +128,15 @@ func (r *FilesRepository) Get(id string) (*File, error) {
 	}
 
 	rows.Next()
-	err = rows.Scan(&file.id, &file.file, &file.created_on)
+	err = rows.Scan(&file.id, &file.file, &file.created_on, &file.downloads_left)
 	if err != nil {
 		return nil, err
 	}
 
 	domainFile := &File{
-		Name: file.file,
-		Id:   file.id,
+		Name:          file.file,
+		Id:            file.id,
+		DownloadsLeft: file.downloads_left,
 	}
 	return domainFile, nil
 }
