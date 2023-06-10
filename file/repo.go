@@ -67,6 +67,7 @@ func (r *FilesRepository) withTx(tx db.Querier) *FilesRepository {
 	return &FilesRepository{
 		db:      r.db,
 		querier: tx,
+		logger:  r.logger,
 	}
 }
 
@@ -102,7 +103,6 @@ func (r *FilesRepository) Insert(file File) error {
 		"INSERT INTO files(id, file, downloads_left, created_on) VALUES ($1, $2, $3, $4)",
 		file.Id, file.Name, file.DownloadsLeft, time.Now(),
 	)
-
 	if err != nil {
 		return err
 	}
@@ -118,6 +118,7 @@ func (r *FilesRepository) Update(file File, whereId string) error {
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httputil"
 	"os"
@@ -136,10 +135,12 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
+	h.logger.Trace().Msg("getFile method called")
 	fileId := chi.URLParam(r, "fileId")
 
 	if fileId == "" {
 		http.Error(w, "Bad request", http.StatusBadRequest)
+		h.logger.Trace().Msg("No file id in url path")
 		return
 	}
 
@@ -147,12 +148,13 @@ func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
 
 	if errors.Is(err, NoDownloadsLeftErr) {
 		http.Error(w, "No downloads left", http.StatusForbidden)
+		h.logger.Trace().Msg("No downloads left for requested resource")
 		return
 	}
 
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		log.Println("Failure getting", err)
+		h.logger.Trace().AnErr("DB error", err)
 		return
 	}
 
@@ -161,7 +163,7 @@ func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		log.Println("Failure reading file from disk", err)
+		h.logger.Trace().AnErr("Failed to read file from disk", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
@@ -169,18 +171,20 @@ func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
 	dat := bufio.NewReader(opened)
 
 	dat.WriteTo(w)
+	h.logger.Trace().Msg("getFile execution finished")
 }
 
 func (h *Handler) log(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		dumpedRequest, _ := httputil.DumpRequest(r, false)
-
 		h.logger.Trace().
 			Str("host", r.Host).
 			Str("path", r.URL.Path).
 			Bytes("request", dumpedRequest).
 			Msg("Request start")
+
 		next.ServeHTTP(w, r)
+
 		h.logger.Trace().Msg("Request end")
 	})
 }
