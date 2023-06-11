@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/xsni1/quick-bin/db"
+	"github.com/xsni1/quick-bin/file/domain"
 )
 
 var NoDownloadsLeftErr = errors.New("File has no downloads left")
@@ -38,21 +39,25 @@ func NewFilesRepository(conn *sql.DB, logger zerolog.Logger) FileRepository {
 	return r
 }
 
-func (r *FilesRepository) execTx(fn func(q *FilesRepository) (any, error)) (any, error) {
-	log.Debug().Msg("Executing execTx")
+// alternatively callback could receive Querier
+// to make it work this way every db method should be defined on querier
+// current implementation that takes repository as a paremeter could even be used in lower layers
+// by creating some exposed method like this
+func (r *FilesRepository) inTransaction(callback func(r *FilesRepository) (any, error)) (any, error) {
+	log.Trace().Msg("Executing execTx")
 
 	tx, err := r.db.BeginTx(context.TODO(), nil)
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	withTx, err := r.querier.WithTx(tx)
+	querierWithTx, err := r.querier.WithTx(tx)
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	repoTx := r.withTx(withTx)
-	result, err := fn(repoTx)
+	repoWithTx := r.withTx(querierWithTx)
+	result, err := callback(repoWithTx)
 
 	if err != nil {
 		tx.Rollback()
@@ -71,9 +76,9 @@ func (r *FilesRepository) withTx(tx db.Querier) *FilesRepository {
 	}
 }
 
-func (r *FilesRepository) GetIfDownloadsLeft(id string) (*File, error) {
-	result, err := r.execTx(func(q *FilesRepository) (any, error) {
-		file, err := q.Get(id)
+func (r *FilesRepository) GetIfDownloadsLeft(id string) (*domain.File, error) {
+	result, err := r.inTransaction(func(r *FilesRepository) (any, error) {
+		file, err := r.Get(id)
 		if err != nil {
 			return file, err
 		}
@@ -83,7 +88,8 @@ func (r *FilesRepository) GetIfDownloadsLeft(id string) (*File, error) {
 		}
 
 		file.DownloadsLeft -= 1
-		err = q.Update(*file, file.Id)
+
+		err = r.Update(*file, file.Id)
 		if err != nil {
 			return nil, err
 		}
@@ -95,10 +101,10 @@ func (r *FilesRepository) GetIfDownloadsLeft(id string) (*File, error) {
 		return nil, err
 	}
 
-	return result.(*File), nil
+	return result.(*domain.File), nil
 }
 
-func (r *FilesRepository) Insert(file File) error {
+func (r *FilesRepository) Insert(file domain.File) error {
 	_, err := r.querier.Exec(
 		"INSERT INTO files(id, file, downloads_left, created_on) VALUES ($1, $2, $3, $4)",
 		file.Id, file.Name, file.DownloadsLeft, time.Now(),
@@ -110,7 +116,7 @@ func (r *FilesRepository) Insert(file File) error {
 	return nil
 }
 
-func (r *FilesRepository) Update(file File, whereId string) error {
+func (r *FilesRepository) Update(file domain.File, whereId string) error {
 	_, err := r.querier.Exec(
 		"UPDATE files SET id = $1, file = $2, downloads_left = $3 WHERE id = $4",
 		file.Id, file.Name, file.DownloadsLeft, whereId,
@@ -122,7 +128,7 @@ func (r *FilesRepository) Update(file File, whereId string) error {
 	return nil
 }
 
-func (r *FilesRepository) Get(id string) (*File, error) {
+func (r *FilesRepository) Get(id string) (*domain.File, error) {
 	file := fileModel{}
 	rows, err := r.querier.Query(
 		"SELECT id, file, created_on, downloads_left FROM files WHERE id = $1",
@@ -139,7 +145,7 @@ func (r *FilesRepository) Get(id string) (*File, error) {
 		return nil, err
 	}
 
-	domainFile := &File{
+	domainFile := &domain.File{
 		Name:          file.file,
 		Id:            file.id,
 		DownloadsLeft: file.downloads_left,

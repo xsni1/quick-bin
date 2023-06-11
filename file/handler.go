@@ -13,13 +13,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog"
+	"github.com/xsni1/quick-bin/file/domain"
 	"github.com/xsni1/quick-bin/hasher"
 )
 
 type FileRepository interface {
-	Insert(file File) error
-	Get(id string) (*File, error)
-	GetIfDownloadsLeft(id string) (*File, error)
+	Insert(file domain.File) error
+	Get(id string) (*domain.File, error)
+	GetIfDownloadsLeft(id string) (*domain.File, error)
 }
 
 type Handler struct {
@@ -32,12 +33,6 @@ func NewHandler(repository FileRepository, logger zerolog.Logger) *Handler {
 		repository: repository,
 		logger:     logger,
 	}
-}
-
-type File struct {
-	Name          string
-	DownloadsLeft int
-	Id            string
 }
 
 type uploadFileResponse struct {
@@ -109,7 +104,7 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.repository.Insert(File{
+	err = h.repository.Insert(domain.File{
 		Name:          header.Filename,
 		DownloadsLeft: downloads,
 		Id:            id,
